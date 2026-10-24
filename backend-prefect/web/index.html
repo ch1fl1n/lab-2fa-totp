@@ -42,7 +42,7 @@
 
   <!-- 1. Usuario y contraseña -->
   <section class="card" id="step-login">
-    <label>Email <input id="email" type="email" autocomplete="username" /></label>
+    <label>Usuario o email <input id="email" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" /></label>
     <label>Contraseña (mín. 8) <input id="password" type="password" autocomplete="current-password" /></label>
     <div class="row">
       <button id="btn-login">Entrar</button>
@@ -105,7 +105,10 @@
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       const d = data.detail;
-      const msg = Array.isArray(d) ? d.map((x) => x.msg).join('\n') : d || `Error ${res.status}`;
+      // Errores de validación de FastAPI: se quita el prefijo "Value error, " de Pydantic.
+      const msg = Array.isArray(d)
+        ? d.map((x) => String(x.msg).replace(/^Value error, /, '')).join('\n')
+        : d || `Error ${res.status}`;
       throw new Error(data.error ? `${data.error}: ${msg}` : msg);
     }
     return data;

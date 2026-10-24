@@ -1,18 +1,30 @@
+import re
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+# Usuario o email (la guía habla de "usuario y contraseña"): letras, números y . _ - + @
+_USERNAME = re.compile(r"^[a-z0-9._+\-@]{3,254}$")
+
 
 class Credentials(BaseModel):
+    # Se llama `email` por la columna de la tabla, pero acepta un nombre de usuario o un email.
     email: str = Field(max_length=254)
-    password: str = Field(min_length=8, max_length=128)
+    password: str = Field(max_length=128)
 
     @field_validator("email")
     @classmethod
-    def normalize_email(cls, v: str) -> str:
+    def normalize_username(cls, v: str) -> str:
         v = v.strip().lower()
-        if "@" not in v or v.startswith("@") or v.endswith("@"):
-            raise ValueError("Email inválido")
+        if not _USERNAME.match(v):
+            raise ValueError("Usuario inválido: mínimo 3 caracteres, sin espacios (letras, números o . _ - + @)")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def check_password(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("La contraseña debe tener al menos 8 caracteres")
         return v
 
 

@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Login 2FA</title>
+  <style>
+    :root {
+      --bg: #f4f5f7; --card: #ffffff; --text: #111316; --muted: #60646c;
+      --border: #e0e1e6; --accent: #208aef; --danger: #e5484d; --ok: #30a46c;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #0b0c0e; --card: #18191b; --text: #f0f1f3; --muted: #b0b4ba; --border: #2e3135; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, sans-serif; }
+    main { max-width: 440px; margin: 0 auto; padding: 32px 16px; display: grid; gap: 16px; }
+    h1 { margin: 0; font-size: 26px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 20px; display: grid; gap: 12px; }
+    .muted { color: var(--muted); font-size: 14px; margin: 0; }
+    label { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
+    input { font: inherit; padding: 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+    input.code { font-family: ui-monospace, monospace; font-size: 24px; letter-spacing: 6px; text-align: center; }
+    button { font: inherit; font-weight: 600; padding: 12px; border: 0; border-radius: 10px; background: var(--accent); color: #fff; cursor: pointer; }
+    button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--border); }
+    button:disabled { opacity: .5; cursor: default; }
+    .row { display: flex; gap: 8px; } .row > * { flex: 1; }
+    .error { color: var(--danger); font-size: 14px; margin: 0; white-space: pre-line; }
+    .ok { color: var(--ok); }
+    .secret { font-family: ui-monospace, monospace; font-size: 18px; font-weight: 700; letter-spacing: 1px; word-break: break-all; user-select: all; }
+    .qr { background: #fff; border-radius: 12px; padding: 8px; width: 100%; max-width: 260px; justify-self: center; }
+    .codes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-family: ui-monospace, monospace; }
+    .tag { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+    pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 13px; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Login con 2FA</h1>
+  <p class="muted">Step-Up Authentication: contraseña → <code>pre_auth_token</code> → código del authenticator → <code>access_token</code> con <code>mfa_verified: true</code>.</p>
+
+  <!-- 1. Usuario y contraseña -->
+  <section class="card" id="step-login">
+    <label>Email <input id="email" type="email" autocomplete="username" /></label>
+    <label>Contraseña (mín. 8) <input id="password" type="password" autocomplete="current-password" /></label>
+    <div class="row">
+      <button id="btn-login">Entrar</button>
+      <button id="btn-register" class="secondary">Crear cuenta</button>
+    </div>
+    <p class="error" id="err-login"></p>
+  </section>
+
+  <!-- 2a. Aprovisionamiento (PENDING_VERIFICATION) -->
+  <section class="card" id="step-setup" hidden>
+    <span class="tag" id="setup-state">PENDING_VERIFICATION</span>
+    <p class="muted">Escanea el QR con tu app (o con Google/Microsoft Authenticator) o escribe el secreto a mano.</p>
+    <img class="qr" id="qr" alt="Código QR otpauth" />
+    <div class="secret" id="secret"></div>
+    <label>Primer código de 6 dígitos <input id="setup-code" class="code" inputmode="numeric" maxlength="6" /></label>
+    <button id="btn-activate">Activar 2FA</button>
+    <p class="error" id="err-setup"></p>
+  </section>
+
+  <!-- 2b. Verificación (ACTIVE) -->
+  <section class="card" id="step-verify" hidden>
+    <div class="row">
+      <button id="m-totp">Código TOTP</button>
+      <button id="m-backup" class="secondary">Código de respaldo</button>
+    </div>
+    <label id="verify-label">Código de tu authenticator <input id="verify-code" class="code" maxlength="9" autocomplete="one-time-code" /></label>
+    <button id="btn-verify">Verificar</button>
+    <p class="error" id="err-verify"></p>
+  </section>
+
+  <!-- Códigos de respaldo (solo tras activar) -->
+  <section class="card" id="step-backup" hidden>
+    <strong>Guarda tus códigos de respaldo</strong>
+    <p class="muted">Cada uno sirve una sola vez si pierdes el teléfono. No se volverán a mostrar.</p>
+    <div class="codes" id="backup-codes"></div>
+  </section>
+
+  <!-- 3. Bóveda -->
+  <section class="card" id="step-vault" hidden>
+    <strong class="ok">Acceso concedido</strong>
+    <span class="tag" id="vault-info"></span>
+    <pre id="vault"></pre>
+    <div class="row">
+      <button id="btn-vault" class="secondary">Volver a consultar la bóveda</button>
+      <button id="btn-logout" class="secondary">Salir</button>
+    </div>
+  </section>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const state = { preAuth: null, access: null, method: 'totp' };
+
+  async function api(path, { method = 'POST', body, token } = {}) {
+    const res = await fetch(path, {
+      method,
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const d = data.detail;
+      const msg = Array.isArray(d) ? d.map((x) => x.msg).join('\n') : d || `Error ${res.status}`;
+      throw new Error(data.error ? `${data.error}: ${msg}` : msg);
+    }
+    return data;
+  }
+
+  function show(...ids) {
+    for (const s of ['step-login', 'step-setup', 'step-verify', 'step-backup', 'step-vault']) $(s).hidden = !ids.includes(s);
+  }
+
+  async function guard(btn, errId, fn) {
+    btn.disabled = true; $(errId).textContent = '';
+    try { await fn(); } catch (e) { $(errId).textContent = e.message; } finally { btn.disabled = false; }
+  }
+
+  const creds = () => ({ email: $('email').value, password: $('password').value });
+
+  async function afterLogin(res) {
+    state.preAuth = res.pre_auth_token;
+    if (res.next_step === 'verify-2fa') { show('step-verify'); $('verify-code').focus(); return; }
+    const setup = await api('/2fa/setup', { body: { pre_auth_token: state.preAuth } });
+    $('qr').src = setup.qr_svg_data_uri;
+    $('secret').textContent = setup.secret_grouped;
+    $('setup-state').textContent = setup.totp_status;
+    show('step-setup'); $('setup-code').focus();
+  }
+
+  async function openVault(session) {
+    if (session) {
+      state.access = session.access_token;
+      $('vault-info').textContent = `método: ${session.method} · ventana: ${session.window}`;
+    }
+    const data = await api('/api/boveda-secreta', { method: 'GET', token: state.access });
+    $('vault').textContent = JSON.stringify(data, null, 2);
+  }
+
+  $('btn-login').onclick = () => guard($('btn-login'), 'err-login', async () => afterLogin(await api('/auth/login', { body: creds() })));
+  $('btn-register').onclick = () => guard($('btn-register'), 'err-login', async () => {
+    await api('/auth/register', { body: creds() });
+    await afterLogin(await api('/auth/login', { body: creds() }));
+  });
+
+  $('btn-activate').onclick = () => guard($('btn-activate'), 'err-setup', async () => {
+    const session = await api('/2fa/activate', { body: { pre_auth_token: state.preAuth, code: $('setup-code').value } });
+    $('backup-codes').innerHTML = session.backup_codes.map((c) => `<span>${c}</span>`).join('');
+    show('step-backup', 'step-vault');
+    await openVault(session);
+  });
+
+  function setMethod(m) {
+    state.method = m;
+    $('m-totp').className = m === 'totp' ? '' : 'secondary';
+    $('m-backup').className = m === 'backup' ? '' : 'secondary';
+    $('verify-label').firstChild.textContent = m === 'totp' ? 'Código de tu authenticator ' : 'Código de respaldo (XXXX-XXXX) ';
+    $('verify-code').value = '';
+  }
+  $('m-totp').onclick = () => setMethod('totp');
+  $('m-backup').onclick = () => setMethod('backup');
+
+  $('btn-verify').onclick = () => guard($('btn-verify'), 'err-verify', async () => {
+    const session = await api('/auth/verify-2fa', {
+      body: { pre_auth_token: state.preAuth, code: $('verify-code').value, method: state.method },
+    });
+    show('step-vault');
+    await openVault(session);
+  });
+
+  $('btn-vault').onclick = () => openVault().catch((e) => ($('vault').textContent = e.message));
+  // "Salir" vuelve al login sin borrar el último código: útil para la prueba de Anti-Replay.
+  $('btn-logout').onclick = () => { state.access = null; state.preAuth = null; setMethod('totp'); show('step-login'); };
+</script>
+</body>
+</html>

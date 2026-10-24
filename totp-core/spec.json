@@ -1,0 +1,33 @@
+{
+  "description": "Especificación única del TOTP compartida por backend-prefect (Python) y mobile-authenticator (TypeScript). Ambas implementaciones la cargan al arrancar y se auto-verifican con estos vectores antes de calcular cualquier código.",
+  "algorithm": "SHA1",
+  "digits": 6,
+  "period": 30,
+  "secret_bytes": 20,
+  "window": 1,
+  "vectors": {
+    "hotp_rfc4226": {
+      "secret_ascii": "12345678901234567890",
+      "codes": ["755224", "287082", "359152", "969429", "338314", "254676", "287922", "162583", "399871", "520489"]
+    },
+    "totp_rfc6238": {
+      "secret_ascii": "12345678901234567890",
+      "digits": 8,
+      "cases": [
+        { "time": 59, "code": "94287082" },
+        { "time": 1111111109, "code": "07081804" },
+        { "time": 1111111111, "code": "14050471" },
+        { "time": 1234567890, "code": "89005924" },
+        { "time": 2000000000, "code": "69279037" },
+        { "time": 20000000000, "code": "65353130" }
+      ]
+    },
+    "base32": [
+      { "ascii": "foobar", "base32": "MZXW6YTBOI" },
+      { "ascii": "12345678901234567890", "base32": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ" }
+    ],
+    "cross_check": [
+      { "secret_base32": "JBSWY3DPEHPK3PXP", "time": 1700000000, "code": "324550" }
+    ]
+  }
+}

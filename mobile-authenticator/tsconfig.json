@@ -1,0 +1,29 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ],
+      "@/assets/*": [
+        "./assets/*"
+      ],
+      "@totp-core": [
+        "../totp-core/ts/index.ts"
+      ]
+    },
+    "resolveJsonModule": true
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts",
+    "../totp-core/ts/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "../totp-core/ts/*.test.ts"
+  ]
+}
